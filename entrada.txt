@@ -1,0 +1,3 @@
+exec programa3
+exec programa4
+exec programa1
