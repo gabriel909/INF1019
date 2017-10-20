@@ -34,29 +34,32 @@
 
 #include "fila.h"
 
-#define MAX_NUM_PROGRAMAS 5
+#define MAX_PROG 5 /* num max de programas */
+#define MAX_TAM 10
+#define MAX_PRIO 15
+#define MAX_NOME 20
 
 /***************************************************************************************************/
 
 //Estruturas de dados auxiliares.
 struct infoProcesso{
-    char nome[20]; /* Nome do programa referente ao processo */
+    char nome[MAX_NOME]; /* Nome do programa referente ao processo */
     int pid;       /* PID do processo */
-    int p;         /* Prioridade do processo (NULL caso o escalonador não seja por prioridades) */
+    int prio[MAX_PRIO];         /* Prioridade do processo (NULL caso o escalonador não seja por prioridades) */
     int status;    /* 0 caso rolando, 1 caso terminado */
-}; typedef struct infoProcesso InfoProcesso ;
+}; 
 
 /***************************************************************************************************/
 
-int interpretador(FILE * fp1, FILE * fp2, InfoProcesso vetorInfo[], int * numProgramas, int * statusInterp);
-int criaProcesso(int * pidProcesso, int posicao, char * nomeProcesso) ;
-int escalonador(FILE * fp2, InfoProcesso vetorInfo[], int * numProgramas, int * statusInterp) ;
-int criaPrograma(int n) ;
+int interpretador (FILE * fp1, InfoProcesso vetorProcesso[], int * numProgramas, int * statusInterp);
+int criaProcesso (int * pidProcesso, int posicao, char * nomeProcesso);
+int escalonador (FILE * fp2, InfoProcesso vetorProcesso[], int * numProgramas, int * statusInterp);
+int criaPrograma (int n);
 
 /***************************************************************************************************/
 
 int main (void) {
-    InfoProcesso * vetorInfo ;
+    InfoProcesso * vetorProcesso;
     int * numProgramas;
     int * statusInterp;
     int pidInterpretador;
@@ -68,21 +71,13 @@ int main (void) {
     FILE * fp1 = fopen ("entrada.txt", "r") ; /* Abertura de arquivo de entrada */
     FILE * fp2 = fopen ("saida.txt", "w") ;   /* Abertura de arquivo de saida  */
     
-    //segmentoInfo = shmget (IPC_PRIVATE, sizeof (InfoProcesso) * MAX_NUM_PROGRAMAS, IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-    //vetorInfo = (InfoProcesso*)shmat(segmentoInfo,0,0);
-    
-    //segmentoNum = shmget (IPC_PRIVATE, sizeof (int), IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-    //numProgramas = (int*)shmat(segmentoNum,0,0);
-    
-    //segmentoTerminado = shmget (IPC_PRIVATE, sizeof (int), IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-    //statusInterp = (int*)shmat(segmentoTerminado,0,0);
     
     *numProgramas = 0;
     *statusInterp = 0;
     
-    for (i = 0; i < MAX_NUM_PROGRAMAS; i++){
-        vetorInfo[i].status = 1;
-        vetorInfo[i].p = 1000;
+    for (i = 0; i < MAX_PROG; i++){
+        vetorProcesso[i].status = 1;
+        vetorProcesso[i].prio = 1000;
     }
     
     if (fp1 == NULL || fp2 == NULL) /* Teste de validação de abertura */
@@ -94,7 +89,7 @@ int main (void) {
     pidInterpretador = fork();
     
     if(pidInterpretador == 0) { // Filho - Interpretador
-        retorno = interpretador (fp1, fp2, vetorInfo, numProgramas, statusInterp) ;
+        retorno = interpretador (fp1, vetorProcesso, numProgramas, statusInterp) ;
         
         if (retorno != 0) {
             fprintf (fp2, "Erro no interpretador. \n") ;
@@ -106,16 +101,13 @@ int main (void) {
     else { // Pai - Escalonador
         while(*numProgramas == 0); //Espera ler ao menos um programa para iniciar escalonamento
         
-        escalonador(fp2, vetorInfo, numProgramas, statusInterp) ; //Chama funcao do escalonador
-        printf("Escalonamento chegou ao fim!\n");
+        escalonador(fp2, vetorProcesso, numProgramas, statusInterp) ; //Chama funcao do escalonador
+        printf("Escalonamento chegou ao fim! \n");
         kill(pidInterpretador, SIGKILL);
     }
     
     fclose (fp1) ;
     fclose (fp2) ;
-    shmdt(statusInterp);
-    shmdt(numProgramas);
-    shmdt(vetorInfo);
     
     return 0;  
 }
@@ -126,30 +118,28 @@ int main (void) {
  *
  ****************************************************************************************************/
 
-int interpretador (	FILE * fp1,	FILE * fp2, InfoProcesso vetorInfo[], int * numProgramas, int * statusInterp)
-{
-    int	ret, i; /* ret armazena retorno da função escalonador	*/
-    char exec[12];            /* auxiliar na leitura do arquivo lendo "exec" ou "prioridade="*/
+void interpretador (FILE * fp1, InfoProcesso vetorProcesso[], int *numProgramas, int * statusInterp) {
+    int i = 0; /* ret armazena retorno da função escalonador	*/
+    char exec[MAX_NOME];            /* auxiliar na leitura do arquivo lendo "exec" ou "prioridade="*/
+    numProgramas = 0;
     
-    *statusInterp = 0;        /* Marca que comecou a interpretar */
-    *numProgramas = 0;
-    i = 0;                    /* Zera as variaveis antes de entrar no While*/
+    *statusInterp = 0;        /* Marca que comecou a interpretar */        
     
     while(fscanf (fp1, "%s", exec) == 1) { /* inicia a leitura do arquivo entrada */
-        if(i != 0){
-            sleep(3);
-        }
         
-        fscanf(fp1,"%s", vetorInfo[i].nome);
+        fscanf(fp1,"%s", vetorProcesso[i].nome); /* le do arquivo e guarda no vetor info */
+    	for (j = 0; j < 3; j++) {
+    		fscanf(fp1, "%d", vetorProcesso[j].prio);
+    	}
         (*numProgramas)++;
         i++;
         
     }
     
     *statusInterp = 1; //Marca que terminou de interpretar
-    while(0);
     
-    return 0;
+
+    /* TRATAR ERROOOOOOOOOOOO */
 }
 
 
@@ -162,32 +152,8 @@ int interpretador (	FILE * fp1,	FILE * fp2, InfoProcesso vetorInfo[], int * numP
 
 int criaProcesso (int * pidProcesso, int posicao, char * nomeProcesso) {
     int pid;
-    
-    if(!strcmp(nomeProcesso, "programa1"))
-        pid = criaPrograma(1);
-    
-    else if(!strcmp(nomeProcesso, "programa2"))
-        pid = criaPrograma(2);
-    
-    else if(!strcmp(nomeProcesso, "programa3"))
-        pid = criaPrograma(3);
-    
-    else if(!strcmp(nomeProcesso, "programa4"))
-        pid = criaPrograma(4);
-    
-    else if(!strcmp(nomeProcesso, "programa5"))
-        pid = criaPrograma(5);
-    
-    else if(!strcmp (nomeProcesso, "programa6"))
-        pid = criaPrograma(6);
-    
-    else if(!strcmp (nomeProcesso, "programa7" ))
-        pid = criaPrograma(7);
-    
-    else {
-        printf("Nome do programa invalido. Não foi possivel criar o processo. \n");
-        return -1;
-    }
+
+    pid = criaPrograma(posicao);
     
     if ( pid == -1 ) {
         printf("PID -1. Não foi possivel criar o processo. \n");
@@ -222,7 +188,7 @@ int criaPrograma (int n) {
     }
     
     else if ( pid != 0 ) { /* PAI */
-        kill ( pid, SIGSTOP ) ;	/* Pausa processo filho no início da execução */
+        kill (pid, SIGSTOP);	/* Pausa processo filho no início da execução */
         return pid; /* Retorna o pid do filho */
     }
     
@@ -240,7 +206,21 @@ int criaPrograma (int n) {
  *
  ****************************************************************************************************/
 
-int escalonador (FILE * fp2, InfoProcesso vetorInfo[], int * numProgramas, int * statusInterp) {
+int escalonador (FILE * fp2, InfoProcesso vetorProcesso[], int * numProgramas, int * statusInterp) {
+
+int i;
+Fila f1[MAX_TAM], f2[MAX_TAM], f3[MAX_TAM];
+
+f1 = fila_cria(1);
+f2 = fila_cria(2);
+f3 = fila_cria(4);
+
+for (i=0; i < numProgramas; i++) { /* insere os programas na 1a fila */
+	fila_insere(f1, vetorProcesso[i]);
+}
+
+
+
 
 
 
