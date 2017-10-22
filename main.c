@@ -45,9 +45,9 @@
 struct infoProcesso{
     char nome[MAX_NOME]; /* Nome do programa referente ao processo */
     int pid;       /* PID do processo */
-    int prio[MAX_PRIO];         /* Prioridade do processo (NULL caso o escalonador não seja por prioridades) */
+    int prio[MAX_PRIO];         /* Prioridade do processo */
     int status;    /* 0 caso rolando, 1 caso terminado */
-}; 
+};
 
 /***************************************************************************************************/
 
@@ -65,51 +65,48 @@ int main (void) {
     int pidInterpretador;
     int retorno;
     int i;
-    
+
     int segmentoInfo, segmentoNum, segmentoTerminado;
-    
+
     FILE * fp1 = fopen ("entrada.txt", "r") ; /* Abertura de arquivo de entrada */
     FILE * fp2 = fopen ("saida.txt", "w") ;   /* Abertura de arquivo de saida  */
-    
-    
+
+
     *numProgramas = 0;
     *statusInterp = 0;
-    
+
     for (i = 0; i < MAX_PROG; i++){
-        vetorProcesso[i].status = 1;
-        vetorProcesso[i].prio = 1000;
+      vetorProcesso[i].status = 1;
+      vetorProcesso[i].prio = 1000;
     }
-    
-    if (fp1 == NULL || fp2 == NULL) /* Teste de validação de abertura */
-    {
-        fprintf (fp2, "Erro na abertura de arquivo. \n") ;
-        return 1 ;
+
+    if (fp1 == NULL || fp2 == NULL) {  /* Teste de validação de abertura */
+      fprintf (fp2, "Erro na abertura de arquivo. \n") ;
+      return 1 ;
     }
-    
+
     pidInterpretador = fork();
-    
+
     if(pidInterpretador == 0) { // Filho - Interpretador
-        retorno = interpretador (fp1, vetorProcesso, numProgramas, statusInterp) ;
-        
-        if (retorno != 0) {
-            fprintf (fp2, "Erro no interpretador. \n") ;
-            return 1 ;
-        }
-        
+      retorno = interpretador (fp1, vetorProcesso, numProgramas, statusInterp) ;
+
+      if (retorno != 0) {
+        fprintf (fp2, "Erro no interpretador. \n") ;
+        return 1 ;
+      }
+
+    } else { // Pai - Escalonador
+      while(*numProgramas == 0); //Espera ler ao menos um programa para iniciar escalonamento
+
+      escalonador(fp2, vetorProcesso, numProgramas, statusInterp) ; //Chama funcao do escalonador
+      printf("Escalonamento chegou ao fim! \n");
+      kill(pidInterpretador, SIGKILL);
     }
-    
-    else { // Pai - Escalonador
-        while(*numProgramas == 0); //Espera ler ao menos um programa para iniciar escalonamento
-        
-        escalonador(fp2, vetorProcesso, numProgramas, statusInterp) ; //Chama funcao do escalonador
-        printf("Escalonamento chegou ao fim! \n");
-        kill(pidInterpretador, SIGKILL);
-    }
-    
+
     fclose (fp1) ;
     fclose (fp2) ;
-    
-    return 0;  
+
+    return 0;
 }
 
 /****************************************************************************************************
@@ -122,22 +119,22 @@ void interpretador (FILE * fp1, InfoProcesso vetorProcesso[], int *numProgramas,
     int i = 0; /* ret armazena retorno da função escalonador	*/
     char exec[MAX_NOME];            /* auxiliar na leitura do arquivo lendo "exec" ou "prioridade="*/
     numProgramas = 0;
-    
-    *statusInterp = 0;        /* Marca que comecou a interpretar */        
-    
+
+    *statusInterp = 0;        /* Marca que comecou a interpretar */
+
     while(fscanf (fp1, "%s", exec) == 1) { /* inicia a leitura do arquivo entrada */
-        
         fscanf(fp1,"%s", vetorProcesso[i].nome); /* le do arquivo e guarda no vetor info */
+
     	for (j = 0; j < 3; j++) {
     		fscanf(fp1, "%d", vetorProcesso[j].prio);
     	}
-        (*numProgramas)++;
-        i++;
-        
+
+      (*numProgramas)++;
+      i++;
     }
-    
+
     *statusInterp = 1; //Marca que terminou de interpretar
-    
+
 
     /* TRATAR ERROOOOOOOOOOOO */
 }
@@ -154,12 +151,12 @@ int criaProcesso (int * pidProcesso, int posicao, char * nomeProcesso) {
     int pid;
 
     pid = criaPrograma(posicao);
-    
+
     if ( pid == -1 ) {
         printf("PID -1. Não foi possivel criar o processo. \n");
         return -1;
     }
-    
+
     *pidProcesso = pid;
     return 0;
 }
@@ -177,26 +174,25 @@ int criaProcesso (int * pidProcesso, int posicao, char * nomeProcesso) {
  ****************************************************************************************************/
 
 int criaPrograma (int n) {
-    int pid;
-    char nomePrograma[10] = "programa";
-    sprintf(nomePrograma, "programa%d", n);
-    
-    pid = fork(); /* Executa o fork */
-    
-    if (pid < 0){ /* Com problemas no fork retorna erro */
-        return 0;
-    }
-    
-    else if ( pid != 0 ) { /* PAI */
-        kill (pid, SIGSTOP);	/* Pausa processo filho no início da execução */
-        return pid; /* Retorna o pid do filho */
-    }
-    
-    else { /* FILHO */
-        execl(nomePrograma, "nada", NULL) ;
-    }
-    
-    return 0 ;
+  int pid;
+  char nomePrograma[10] = "programa";
+  sprintf(nomePrograma, "programa%d", n);
+
+  pid = fork(); /* Executa o fork */
+
+  if (pid < 0) { /* Com problemas no fork retorna erro */
+    return 0;
+
+  } else if ( pid != 0 ) { /* PAI */
+    kill (pid, SIGSTOP);	/* Pausa processo filho no início da execução */
+    return pid; /* Retorna o pid do filho */
+
+  } else { /* FILHO */
+    execl(nomePrograma, "nada", NULL);
+
+  }
+
+  return 0;
 }
 
 
@@ -207,23 +203,20 @@ int criaPrograma (int n) {
  ****************************************************************************************************/
 
 int escalonador (FILE * fp2, InfoProcesso vetorProcesso[], int * numProgramas, int * statusInterp) {
+  int i;
+  Fila f1[MAX_TAM], f2[MAX_TAM], f3[MAX_TAM];
+  InfoProcesso current_proccess;
 
-int i;
-Fila f1[MAX_TAM], f2[MAX_TAM], f3[MAX_TAM];
+  f1 = fila_cria(1);
+  f2 = fila_cria(2);
+  f3 = fila_cria(4);
 
-f1 = fila_cria(1);
-f2 = fila_cria(2);
-f3 = fila_cria(4);
+  for (i=0; i < numProgramas; i++) { /* insere os programas na 1a fila */
+	  fila_insere(f1, vetorProcesso[i]);
+  }
 
-for (i=0; i < numProgramas; i++) { /* insere os programas na 1a fila */
-	fila_insere(f1, vetorProcesso[i]);
+  if (fila_vazia(f1) != 1) {
+    current_proccess = fila_retira(f1);
+    kill(current_proccess.pid, SIGCONT);
+  }
 }
-
-
-
-
-
-
-
-
-}	

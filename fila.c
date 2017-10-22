@@ -28,9 +28,10 @@ int fila_vazia(Fila *f) {
 /* Para inserir um elemento na fila, usamos a prox posicao livre do vetor, indicada por fim. */
 void fila_insere(Fila* f, InfoProcesso processo) {
 	int fim;
+	
 	if (f->n == N) { /* fila cheia: capacidade esgotada */
-	printf("Capacidade da fila estourou. \n")
-	exit(1);
+		printf("Capacidade da fila estourou. \n")
+		exit(1);
 	}
 	/* insere elemento na prox posicao livre */
 	fim = (f->ini + f->n) % N;
@@ -41,9 +42,10 @@ void fila_insere(Fila* f, InfoProcesso processo) {
 /* A funcao para retirar o elemento do inicio da fila fornece o valor do elemento retirado como retorno. */
 InfoProcesso fila_retira(Fila* f) {
 	InfoProcesso processo;
+
 	if (fila_vazia(f)) {
-	printf("Fila vazia. \n")
-	exit(1);
+		printf("Fila vazia. \n")
+		exit(1);
 	}
 	/* retira elemento do inicio */
 	processo = f->vet[f->ini];
@@ -56,9 +58,3 @@ InfoProcesso fila_retira(Fila* f) {
 void fila_libera(Fila* f) {
 	free(f);
 }
-
-
-
-
-
-
