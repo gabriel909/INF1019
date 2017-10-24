@@ -9,7 +9,7 @@ struct fila {
 	int ini; /* indice para o inicio da fila */
 	InfoProcesso vet[N];
 	int prio;
-}
+};
 
 /* Essa funcao para criar a fila aloca dinamicamente essa estrutura e inicializa a fila como sendo vazia. */
 Fila* fila_cria(int prioridade) {
@@ -28,7 +28,7 @@ int fila_vazia(Fila *f) {
 /* Para inserir um elemento na fila, usamos a prox posicao livre do vetor, indicada por fim. */
 void fila_insere(Fila* f, InfoProcesso processo) {
 	int fim;
-	
+
 	if (f->n == N) { /* fila cheia: capacidade esgotada */
 		printf("Capacidade da fila estourou. \n")
 		exit(1);
