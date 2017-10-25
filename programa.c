@@ -26,6 +26,7 @@ int main (int argc, char *argv[]) {
 		kill(p_pid, SIGUSR1);
 
 		sleep(3);
+		puts("ACORDEI");
 		kill(p_pid, SIGUSR2);
 	}
 
