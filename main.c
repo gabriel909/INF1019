@@ -24,7 +24,7 @@
 
 #define MAX_PROG 5
 #define MAX_TAM 10
-#define MAX_PRIO 15
+#define MAX_PRIO 3
 #define MAX_NOME 20
 #define N 100
 #define EVER ;;
@@ -39,6 +39,7 @@ typedef struct infoProcesso {
     int status;    /* 0 caso rolando, 1 caso terminado */
     int fila;
     int prio_count;
+    int index;
 } InfoProcesso;
 
 /***************************************************************************************************/
@@ -150,29 +151,18 @@ int is_empty(int* array) {
   return 1;
 }
 
-int change_burst(int *burst, int f_slice, char* pid) {
+int change_burst(int burst[], int f_slice, char* pid) {
   int i;
 
   for(i = 0; i < MAX_PRIO; i++) {
-    *burst = *(burst + i * 4);
-    if(*burst > 0) {
-      if(*burst > f_slice) {
-        printf("BURST %d\n", *burst);
-        *burst -= f_slice;
-        printf("BURST LEFT %d\n", *burst);
-        return 1;
-
-      } else {
-        printf("BURST %d %s\n", *burst, pid);
-        *burst = 0;
-        printf("BURST LEFT %d\n", 0);
-        return 0;
-
-      }
+    // *burst = *(burst + i * 4);
+    if(burst[i] > 0) {
+      printf("CHANGE BURST %d\n", burst[i]);
+      return i;
     }
   }
 
-  return 0;
+  return -1;
 }
 
 char** convert_int_to_string_array(int array[], int count_array) {
@@ -189,6 +179,16 @@ char** convert_int_to_string_array(int array[], int count_array) {
   }
 
   return string_array;
+}
+
+int empty_array(int array[]) {
+  for(int i = 0; i < MAX_PRIO; i++) {
+    if(array[i] != 0) {
+      return 0;
+    }
+  }
+
+  return 1;
 }
 
 /***************************************************************************************************/
@@ -273,9 +273,10 @@ Fila* interpretador(FILE * fp1, Fila *fila_processo, int *numProgramas, int * st
   *numProgramas = 0;
   *statusInterp = 0;
   InfoProcesso *processo = (InfoProcesso*) malloc(sizeof(InfoProcesso));
+  char exec[MAX_NOME];
 
-  // fscanf(fp1, "%d", numProgramas);
-  scanf("%ds", numProgramas);
+  fscanf(fp1, "%d", numProgramas);
+  // scanf("%ds", numProgramas);
   printf("NUMPROGRAMAS %d\n", *numProgramas);
 
   // i = 0;
@@ -287,18 +288,20 @@ Fila* interpretador(FILE * fp1, Fila *fila_processo, int *numProgramas, int * st
 
   // *numProgramas = j;
 
-  for(int i = 0; i < *numProgramas; i++) { /* inicia a leitura do arquivo entrada */
-    // fscanf(fp1,"%s", processo->nome); /* le do arquivo e guarda no vetor info */
-    scanf("%s", processo->nome);
+  // for(int i = 0; i < *numProgramas; i++) { /* inicia a leitura do arquivo entrada */
+    while(fscanf(fp1, "%s", exec) == 1) {
+    fscanf(fp1,"%s", processo->nome); /* le do arquivo e guarda no vetor info */
+    // scanf("%s", processo->nome);
     printf("NOME INTERPRETADOR %s\n", processo->nome);
 
     for(j = 0; j < 3; j++) {
-      // fscanf(fp1, "%d", &processo->prio[j]);
-      scanf("%d", &processo->prio[j]);
+      fscanf(fp1, "%d", &processo->prio[j]);
+      // scanf("%d", &processo->prio[j]);
       printf("BURST INTERPRETADOR %d\n", processo->prio[j]);
     }
 
     processo->prio_count = j;
+    processo->index = 0;
 
     fila_insere(fila_processo, *processo);
 
@@ -415,11 +418,26 @@ void schedule(Fila *fila, Fila* fila2, Fila *fila3, int fila_atual) {
 
 
   } else {
-    if(change_burst(&(current_proccess.prio), fila->prio, current_proccess.nome) == 1) {
-      if (current_proccess.pid != 0) {
-        printf("========== SIGSTOP %s\n", current_proccess.nome);
-        kill(current_proccess.pid, SIGSTOP);
-        did_ask_for_io = 0;
+    int index = current_proccess.index;
+
+    if(index >= 0 && !empty_array(current_proccess.prio)) {
+      if(current_proccess.prio[index] > fila->prio) {
+        printf("BURST %d\n", current_proccess.prio[index]);
+        current_proccess.prio[index] -= fila->prio;
+        printf("BURST LEFT %d\n", current_proccess.prio[index]);
+
+        if (current_proccess.pid != 0) {
+          printf("========== SIGSTOP %s\n", current_proccess.nome);
+          kill(current_proccess.pid, SIGSTOP);
+          did_ask_for_io = 0;
+        }
+
+      } else {
+        printf("BURST %d\n", current_proccess.prio[index]);
+        current_proccess.prio[index] = 0;
+        current_proccess.index++;
+        printf("BURST LEFT %d\n", current_proccess.prio[index]);
+
       }
 
       fila_insere(fila2, current_proccess);

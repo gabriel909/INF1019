@@ -1,4 +1,3 @@
-3
+2
 exec programa0 2 3 2
-exec programa1 4 2 2
-exec programa2 2 1 1
+exec programa1 3 2 3
