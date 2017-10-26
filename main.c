@@ -8,16 +8,6 @@
  *    Aluno:    Gabriel Barbosa de Oliveira - 1410578
  *    Aluno:    Karina Fernandes Tronkos - 1511690
  *
- *    O programa lê, na ordem dada, as seguintes informações de um arquivo "entrada.txt" :
- *
- *        1. A palavra exec indicando mais um programa a ser executado ;
- *
- *        2. O nome do programa a ser executado, o nome do programa é uma string sempre de nome
- *       programaN, onde n é um numero inteiro de 1 a 7
- *
- *    Apos ler e armazenar as informações, o programa chama executa os processos na ordem cor-
- *    reta, conforme especificado no enunciado do trabalho.
- *
  ****************************************************************************************************/
 
 #include <stdio.h>
@@ -32,7 +22,7 @@
 #include <sys/wait.h>
 #include <sys/shm.h>
 
-#define MAX_PROG 5 /* num max de programas */
+#define MAX_PROG 5
 #define MAX_TAM 10
 #define MAX_PRIO 15
 #define MAX_NOME 20
@@ -47,6 +37,8 @@ typedef struct infoProcesso {
     int pid;       /* PID do processo */
     int prio[MAX_PRIO];         /* Prioridade do processo */
     int status;    /* 0 caso rolando, 1 caso terminado */
+    int fila;
+    int prio_count;
 } InfoProcesso;
 
 /***************************************************************************************************/
@@ -118,19 +110,26 @@ void fila_libera(Fila* f) {
  *
  ****************************************************************************************************/
 
-InfoProcesso* interpretador(FILE * fp1, InfoProcesso vetorProcesso[], int * numProgramas, int * statusInterp);
-int criaProcesso(int * pidProcesso, int posicao, int array_burst[]);
-int escalonador(FILE * fp2, InfoProcesso vetorProcesso[], int * numProgramas, int * statusInterp);
-int criaPrograma(int n, int array_burst[]);
+//Cabeçalho das Funções
+Fila* interpretador(FILE * fp1, Fila *fila_processo, int * numProgramas, int * statusInterp);
+int criaProcesso(int * pidProcesso, int posicao, int array_burst[], int bursts_count);
+int escalonador(FILE * fp2, Fila *fila_processo, int * numProgramas, int * statusInterp);
+int criaPrograma(int n, int array_burst[], int bursts_count);
 void sleep_scheduler(long time_slice);
-void schedule(Fila *fila, Fila *fila2, Fila *fila3);
+void schedule(Fila *fila, Fila *fila2, Fila *fila3, int fila_atual);
 void asked_for_io();
 void finished_io();
 void finished_execution(int signum);
 
+//Variáveis globais
 int did_ask_for_io = 0;
 InfoProcesso current_proccess;
+Fila *f1, *f2, *f3;
+Fila *fila_io;
+Fila *fila_processo;
+Fila *running;
 
+//Funções Auxiliares
 int array_count(int array[]) {
   int count = (int) sizeof(*array) / sizeof(int);
 
@@ -151,32 +150,32 @@ int is_empty(int* array) {
   return 1;
 }
 
-int change_burst(int burst[], int f_slice) {
-  int i = 0;
+int change_burst(int *burst, int f_slice, char* pid) {
+  int i;
 
-  for(EVER) {
-    if(burst[i] != 0) {
-      if(burst[i] > f_slice) {
-        printf("BURST %d\n", burst[i]);
-        burst[i] -= f_slice;
-        printf("BURST LEFT %d\n", burst[i]);
+  for(i = 0; i < MAX_PRIO; i++) {
+    *burst = *(burst + i * 4);
+    if(*burst > 0) {
+      if(*burst > f_slice) {
+        printf("BURST %d\n", *burst);
+        *burst -= f_slice;
+        printf("BURST LEFT %d\n", *burst);
         return 1;
 
       } else {
-        printf("BURST %d\n", burst[i]);
-        burst[i] = 0;
+        printf("BURST %d %s\n", *burst, pid);
+        *burst = 0;
         printf("BURST LEFT %d\n", 0);
         return 0;
 
       }
     }
-
-    i++;
   }
+
+  return 0;
 }
 
-char** convert_int_to_string_array(int array[]) {
-  int count_array = array_count(array);
+char** convert_int_to_string_array(int array[], int count_array) {
   char** string_array = malloc(count_array * sizeof(char*));
   int i = 0;
 
@@ -195,9 +194,13 @@ char** convert_int_to_string_array(int array[]) {
 /***************************************************************************************************/
 
 int main (void) {
-  InfoProcesso *vetorProcesso = (InfoProcesso *) malloc(MAX_PROG * sizeof(InfoProcesso));
+  fila_processo = fila_cria(-1);
+  fila_io = fila_cria(-1);
+  running = fila_cria(-1);
+
   int * numProgramas = malloc(sizeof(*numProgramas));
   int * statusInterp = malloc(sizeof(*statusInterp));
+  size_t * tam_pipe = malloc(sizeof(size_t));
   int pidInterpretador;
   int fd[2];
 
@@ -227,27 +230,33 @@ int main (void) {
   if(pidInterpretador == 0) { // Filho - Interpretador
     puts("INTERPRETADOR");
     close(fd[0]);
-    vetorProcesso = interpretador(fp1, vetorProcesso, numProgramas, statusInterp);
+    fila_processo = interpretador(fp1, fila_processo, numProgramas, statusInterp);
 
     puts("INTERPRETADOR END");
     printf("%d\n", *numProgramas);
     write(fd[1], numProgramas, sizeof(int));
-    write(fd[1], vetorProcesso, MAX_PROG * sizeof(InfoProcesso));
+
+    *tam_pipe = sizeof(*fila_processo);
+
+    printf("TAM PIPE %lu\n", *tam_pipe);
+    write(fd[1], tam_pipe, sizeof(size_t));
+    write(fd[1], fila_processo, sizeof(*fila_processo));
 
   } else { // Pai - Escalonador
     close(fd[1]);
     read(fd[0], numProgramas, sizeof(int));
-    printf("%d\n", read(fd[0], vetorProcesso, MAX_PROG * sizeof(InfoProcesso)));
+    read(fd[0], tam_pipe, sizeof(size_t));
+    read(fd[0], fila_processo, *tam_pipe);
 
     while(*numProgramas == 0); //Espera ler ao menos um programa para iniciar escalonamento
 
-    escalonador(fp2, vetorProcesso, numProgramas, statusInterp) ; //Chama funcao do escalonador
+    escalonador(fp2, fila_processo, numProgramas, statusInterp) ; //Chama funcao do escalonador
     printf("Escalonamento chegou ao fim! \n");
     kill(pidInterpretador, SIGKILL);
   }
 
-  fclose (fp1) ;
-  fclose (fp2) ;
+  fclose(fp1);
+  fclose(fp2);
 
   return 0;
 }
@@ -258,43 +267,47 @@ int main (void) {
  *
  ****************************************************************************************************/
 
-InfoProcesso* interpretador(FILE * fp1, InfoProcesso vetorProcesso[], int *numProgramas, int * statusInterp) {
-  int i = 0; /* ret armazena retorno da função escalonador    */
-  char exec[MAX_NOME];            /* auxiliar na leitura do arquivo lendo "exec" ou "prioridade="*/
+Fila* interpretador(FILE * fp1, Fila *fila_processo, int *numProgramas, int * statusInterp) {
+  // int i = 0; /* ret armazena retorno da função escalonador    */
+  int j = 0;
   *numProgramas = 0;
-  *statusInterp = 0;        /* Marca que comecou a interpretar */
+  *statusInterp = 0;
+  InfoProcesso *processo = (InfoProcesso*) malloc(sizeof(InfoProcesso));
 
-  fscanf(fp1, "%d", numProgramas);
-  // scanf("%d", numProgramas);
+  // fscanf(fp1, "%d", numProgramas);
+  scanf("%ds", numProgramas);
+  printf("NUMPROGRAMAS %d\n", *numProgramas);
 
-  for (i = 0; i < *numProgramas; i++){
-    vetorProcesso[i].status = 1;
-    vetorProcesso[i].pid = -1;
+  // i = 0;
 
-    for(int j = 0; j < MAX_PRIO; j++) {
-      vetorProcesso[i].prio[j] = 0;
+  // while(scanf(" exec %s (%d,%d,%d)", processo->nome, &processo->prio[0], &processo->prio[1], &processo->prio[2]) == 4) {
+  //   // j++;
+  //   fila_insere(fila_processo, *processo);
+  // }
+
+  // *numProgramas = j;
+
+  for(int i = 0; i < *numProgramas; i++) { /* inicia a leitura do arquivo entrada */
+    // fscanf(fp1,"%s", processo->nome); /* le do arquivo e guarda no vetor info */
+    scanf("%s", processo->nome);
+    printf("NOME INTERPRETADOR %s\n", processo->nome);
+
+    for(j = 0; j < 3; j++) {
+      // fscanf(fp1, "%d", &processo->prio[j]);
+      scanf("%d", &processo->prio[j]);
+      printf("BURST INTERPRETADOR %d\n", processo->prio[j]);
     }
-  }
 
-  i = 0;
+    processo->prio_count = j;
 
-  while(fscanf(fp1, "%s", exec) == 1) { /* inicia a leitura do arquivo entrada */
-    fscanf(fp1,"%s", vetorProcesso[i].nome); /* le do arquivo e guarda no vetor info */
-    // scanf("%s", vetorProcesso[i].nome);
-    printf("NOME INTERPRETADOR %s\n", vetorProcesso[i].nome);
+    fila_insere(fila_processo, *processo);
 
-    for(int j = 0; j < 3; j++) {
-      fscanf(fp1, "%d", &vetorProcesso[i].prio[j]);
-      // scanf("%d", &vetorProcesso[i].prio[j]);
-      printf("BURST INTERPRETADOR %d\n", vetorProcesso[i].prio[j]);
-    }
-
-    i++;
+    // i++;
   }
 
   *statusInterp = 1; //Marca que terminou de interpretar
 
-  return vetorProcesso;
+  return fila_processo;
 }
 
 /****************************************************************************************************
@@ -303,10 +316,10 @@ InfoProcesso* interpretador(FILE * fp1, InfoProcesso vetorProcesso[], int *numPr
  *
  ****************************************************************************************************/
 
-int criaProcesso(int * pidProcesso, int posicao, int array_burst[]) {
+int criaProcesso(int * pidProcesso, int posicao, int array_burst[], int bursts_count) {
   int pid;
 
-  pid = criaPrograma(posicao, array_burst);
+  pid = criaPrograma(posicao, array_burst, bursts_count);
 
   if ( pid == -1 ) {
     printf("PID -1. Não foi possivel criar o processo. \n");
@@ -317,19 +330,14 @@ int criaProcesso(int * pidProcesso, int posicao, int array_burst[]) {
   return 0;
 }
 
-
-
 /****************************************************************************************************
  *
  *    Funções: criaPrograma
  *
- *    Retorno:
- *        pid - pid do processo criado
- *        0 - quando não consegue executar o fork
  *
  ****************************************************************************************************/
 
-int criaPrograma (int n, int array_burst[]) {
+int criaPrograma (int n, int array_burst[], int bursts_count) {
   int pid;
   char nomePrograma[10] = "programa";
   sprintf(nomePrograma, "programa%d", n);
@@ -344,7 +352,7 @@ int criaPrograma (int n, int array_burst[]) {
     return pid; /* Retorna o pid do filho */
 
   } else { /* FILHO */
-    execv(nomePrograma, convert_int_to_string_array(array_burst));
+    execv(nomePrograma, convert_int_to_string_array(array_burst, bursts_count));
 
   }
 
@@ -358,31 +366,34 @@ int criaPrograma (int n, int array_burst[]) {
  *
  ****************************************************************************************************/
 
-int escalonador (FILE * fp2, InfoProcesso vetorProcesso[], int * numProgramas, int * statusInterp) {
-  int i, p = 0;
-  Fila *f1, *f2, *f3;
+int escalonador (FILE * fp2, Fila *fila_processo, int * numProgramas, int * statusInterp) {
+  int i;
 
   f1 = fila_cria(1);
   f2 = fila_cria(2);
   f3 = fila_cria(4);
 
+  int flag = 0;
+
   for(i = 0; i < *numProgramas; i++) { /* insere os programas na 1a fila */
-    criaProcesso(&vetorProcesso[i].pid, i, vetorProcesso[i].prio);
-    fila_insere(f1, vetorProcesso[i]);
+    InfoProcesso processo = fila_retira(fila_processo);
+    criaProcesso(&processo.pid, i, processo.prio, processo.prio_count);
+    fila_insere(f1, processo);
+    fila_insere(fila_processo, processo);
   }
 
-  while(vetorProcesso != 0) {
-    if (fila_vazia(f1) != 1) {
-      puts("ESTOU NA FILA 1");
-      schedule(f1, f2, NULL);
+  while(!fila_vazia(fila_processo)) {
+    if (!fila_vazia(f1)) {
+      puts("********* ESTOU NA FILA 1 *********");
+      schedule(f1, f2, NULL, 1);
 
-    } else if (fila_vazia(f2) != 1) {
-      puts("ESTOU NA FILA 2");
-      schedule(f2, f3, f1);
+    } else if (!fila_vazia(f2)) {
+      puts("********* ESTOU NA FILA 2 *********");
+      schedule(f2, f3, f1, 2);
 
-    } else if (fila_vazia(f3) != 1) {
-      puts("ESTOU NA FILA 3");
-      schedule(f3, f2, NULL);
+    } else if (!fila_vazia(f3)) {
+      puts("********* ESTOU NA FILA 3 *********");
+      schedule(f3, f2, NULL, 3);
 
     }
   }
@@ -390,26 +401,28 @@ int escalonador (FILE * fp2, InfoProcesso vetorProcesso[], int * numProgramas, i
   return 0;
 }
 
-void schedule(Fila *fila, Fila* fila2, Fila *fila3) {
+void schedule(Fila *fila, Fila* fila2, Fila *fila3, int fila_atual) {
   current_proccess = fila_retira(fila);
   kill(current_proccess.pid, SIGCONT);
+  current_proccess.fila = fila_atual;
+  fila_insere(running, current_proccess);
+  printf("PROCESSO %s\n", current_proccess.nome);
 
   sleep_scheduler(fila->prio);
 
-  printf("CURRENT PROCCESS PID %d\n", current_proccess.pid);
-  printf("CURRENT PROCESS NAME %s\n", current_proccess.nome);
-  kill(current_proccess.pid, SIGSTOP);
-  did_ask_for_io = 0;
+  if(did_ask_for_io) {
+    did_ask_for_io = 0;
 
-  if(change_burst(current_proccess.prio, fila->prio) == 1) {
-    fila_insere(fila2, current_proccess);
 
   } else {
-    if(fila3 == NULL) {
-      fila_insere(fila, current_proccess);
+    if(change_burst(&(current_proccess.prio), fila->prio, current_proccess.nome) == 1) {
+      if (current_proccess.pid != 0) {
+        printf("========== SIGSTOP %s\n", current_proccess.nome);
+        kill(current_proccess.pid, SIGSTOP);
+        did_ask_for_io = 0;
+      }
 
-    } else {
-      fila_insere(fila3, current_proccess);
+      fila_insere(fila2, current_proccess);
 
     }
   }
@@ -421,21 +434,49 @@ void sleep_scheduler(long time_slice) {
   for(EVER) {
     long new_time = time(NULL);
 
-    if(((new_time - tempo) == time_slice) || did_ask_for_io != 0) {
+    if(((new_time - tempo) >= time_slice) || did_ask_for_io) {
       break;
     }
   }
 }
 
 void asked_for_io() {
-  puts("ASKED FOR IO");
+  InfoProcesso running_process = fila_retira(running);
+  puts("ASKED FOR IO >>>>>");
+  printf("PROCESSO %s >>>>>\n", running_process.nome);
+  fila_insere(fila_io, running_process);
   did_ask_for_io = 1;
 }
 
 void finished_io() {
-  puts("VOLTEI DE IO");
+  puts("<<<< VOLTEI DE IO");
+  did_ask_for_io = 0;
+
+  if(!fila_vazia(fila_io)) {
+    InfoProcesso out = fila_retira(fila_io);
+    printf("<<<< PROCESSO %s\n", out.nome);
+
+    kill(out.pid, SIGSTOP);
+
+    switch(out.fila) {
+      case 1:
+        fila_insere(f1, out);
+        break;
+
+      case 2:
+        fila_insere(f1, out);
+        break;
+
+      case 3:
+        fila_insere(f2, out);
+        break;
+    }
+  }
 }
 
 void finished_execution(int signum) {
-
+  if(signum != 20) {
+    puts("PROCESSO TERMINOU");
+    // fila_retira(fila_processo);
+  }
 }
