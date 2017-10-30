@@ -24,7 +24,7 @@
 
 #define MAX_PROG 5
 #define MAX_TAM 10
-#define MAX_PRIO 3
+#define MAX_PRIO 4
 #define MAX_NOME 20
 #define N 100
 #define EVER ;;
@@ -125,6 +125,7 @@ void finished_execution(int signum);
 //Variáveis globais
 int did_ask_for_io = 0;
 InfoProcesso current_proccess;
+int finished_processes = 0;
 Fila *f1, *f2, *f3;
 Fila *fila_io;
 Fila *fila_processo;
@@ -166,7 +167,16 @@ int change_burst(int burst[], int f_slice, char* pid) {
 }
 
 char** convert_int_to_string_array(int array[], int count_array) {
-  char** string_array = malloc(count_array * sizeof(char*));
+  char** string_array;
+
+  if(MAX_PRIO == 4) {
+    string_array = malloc((count_array + 1) * sizeof(char*));
+
+  } else {
+    string_array = malloc((count_array) * sizeof(char*));
+
+  }
+
   int i = 0;
 
   for (i = 0; i < count_array; i++) {
@@ -176,6 +186,10 @@ char** convert_int_to_string_array(int array[], int count_array) {
 
     string_array[i] = malloc(sizeof(c));
     strcpy(string_array[i], c);
+  }
+
+  if(MAX_PRIO == 4) {
+    string_array[count_array + 1] = NULL;
   }
 
   return string_array;
@@ -206,7 +220,7 @@ int main (void) {
 
   signal(SIGUSR1, asked_for_io);
   signal(SIGUSR2, finished_io);
-  signal(SIGCHLD, finished_execution);
+  // signal(SIGCHLD, finished_execution);
 
   FILE * fp1 = fopen ("entrada.txt", "r") ; /* Abertura de arquivo de entrada */
   FILE * fp2 = fopen ("saida.txt", "w") ;   /* Abertura de arquivo de saida  */
@@ -273,34 +287,31 @@ Fila* interpretador(FILE * fp1, Fila *fila_processo, int *numProgramas, int * st
   *numProgramas = 0;
   *statusInterp = 0;
   InfoProcesso *processo = (InfoProcesso*) malloc(sizeof(InfoProcesso));
-  char exec[MAX_NOME];
 
-  fscanf(fp1, "%d", numProgramas);
-  // scanf("%ds", numProgramas);
+  // fscanf(fp1, "%d", numProgramas);
+  printf("Digite o numero de programas: \n");
+  scanf("%ds", numProgramas);
   printf("NUMPROGRAMAS %d\n", *numProgramas);
 
   // i = 0;
 
-  // while(scanf(" exec %s (%d,%d,%d)", processo->nome, &processo->prio[0], &processo->prio[1], &processo->prio[2]) == 4) {
-  //   // j++;
-  //   fila_insere(fila_processo, *processo);
-  // }
-
   // *numProgramas = j;
 
-  // for(int i = 0; i < *numProgramas; i++) { /* inicia a leitura do arquivo entrada */
-    while(fscanf(fp1, "%s", exec) == 1) {
-    fscanf(fp1,"%s", processo->nome); /* le do arquivo e guarda no vetor info */
-    // scanf("%s", processo->nome);
-    printf("NOME INTERPRETADOR %s\n", processo->nome);
+  for(int i = 0; i < *numProgramas; i++) { /* inicia a leitura do arquivo entrada */
+    // while(fscanf(fp1, "%s", exec) == 1) {
+    // fscanf(fp1,"%s", processo->nome); /* le do arquivo e guarda no vetor info */
+    printf("Digite o nome do %do programa: \n", i+1);
+    scanf("%s", processo->nome);
+    // printf("NOME INTERPRETADOR %s\n", processo->nome);
 
-    for(j = 0; j < 3; j++) {
-      fscanf(fp1, "%d", &processo->prio[j]);
-      // scanf("%d", &processo->prio[j]);
-      printf("BURST INTERPRETADOR %d\n", processo->prio[j]);
+    for(j = 0; j < MAX_PRIO; j++) {
+      // fscanf(fp1, "%d", &processo->prio[j]);
+      printf("Digite o %da rajada do %do programa: \n", j+1, i+1);
+      scanf("%d", &processo->prio[j]);
+      // printf("BURST INTERPRETADOR %d\n", processo->prio[j]);
     }
 
-    processo->prio_count = j;
+    processo->prio_count = MAX_PRIO;
     processo->index = 0;
 
     fila_insere(fila_processo, *processo);
@@ -376,16 +387,18 @@ int escalonador (FILE * fp2, Fila *fila_processo, int * numProgramas, int * stat
   f2 = fila_cria(2);
   f3 = fila_cria(4);
 
-  int flag = 0;
+  // int flag = 0;
 
   for(i = 0; i < *numProgramas; i++) { /* insere os programas na 1a fila */
     InfoProcesso processo = fila_retira(fila_processo);
-    criaProcesso(&processo.pid, i, processo.prio, processo.prio_count);
-    fila_insere(f1, processo);
-    fila_insere(fila_processo, processo);
+    criaProcesso(&processo.pid, i, processo.prio, MAX_PRIO);
+    if(processo.pid != 0) {
+      fila_insere(f1, processo);
+      fila_insere(fila_processo, processo);
+    }
   }
 
-  while(!fila_vazia(fila_processo)) {
+  while(finished_processes < *numProgramas) {
     if (!fila_vazia(f1)) {
       puts("********* ESTOU NA FILA 1 *********");
       schedule(f1, f2, NULL, 1);
@@ -408,40 +421,36 @@ void schedule(Fila *fila, Fila* fila2, Fila *fila3, int fila_atual) {
   current_proccess = fila_retira(fila);
   kill(current_proccess.pid, SIGCONT);
   current_proccess.fila = fila_atual;
-  fila_insere(running, current_proccess);
+  fila_insere(running, current_proccess); /* fila running pro io */
   printf("PROCESSO %s\n", current_proccess.nome);
 
   sleep_scheduler(fila->prio);
 
   if(did_ask_for_io) {
+    pause(); /* espera pelo sinal de terminou I/O */
     did_ask_for_io = 0;
-
 
   } else {
     int index = current_proccess.index;
 
-    if(index >= 0 && !empty_array(current_proccess.prio)) {
-      if(current_proccess.prio[index] > fila->prio) {
-        printf("BURST %d\n", current_proccess.prio[index]);
-        current_proccess.prio[index] -= fila->prio;
-        printf("BURST LEFT %d\n", current_proccess.prio[index]);
+    if(index >= 0) { /* pega e calcula o burst do processo */
+      if(!empty_array(current_proccess.prio)) {
+        if(current_proccess.prio[index] > fila->prio) {
+          printf("BURST %d\n", current_proccess.prio[index]);
+          current_proccess.prio[index] -= fila->prio;
+          printf("BURST LEFT %d\n", current_proccess.prio[index]);
 
-        if (current_proccess.pid != 0) {
-          printf("========== SIGSTOP %s\n", current_proccess.nome);
-          kill(current_proccess.pid, SIGSTOP);
-          did_ask_for_io = 0;
+          if (current_proccess.pid != 0) {
+            printf("========== SIGSTOP %s\n", current_proccess.nome);
+            fila_retira(running);
+            kill(current_proccess.pid, SIGSTOP);
+            did_ask_for_io = 0;
+          }
+
         }
 
-      } else {
-        printf("BURST %d\n", current_proccess.prio[index]);
-        current_proccess.prio[index] = 0;
-        current_proccess.index++;
-        printf("BURST LEFT %d\n", current_proccess.prio[index]);
-
+        fila_insere(fila2, current_proccess);
       }
-
-      fila_insere(fila2, current_proccess);
-
     }
   }
 }
@@ -460,21 +469,31 @@ void sleep_scheduler(long time_slice) {
 
 void asked_for_io() {
   InfoProcesso running_process = fila_retira(running);
-  puts("ASKED FOR IO >>>>>");
-  printf("PROCESSO %s >>>>>\n", running_process.nome);
-  fila_insere(fila_io, running_process);
-  did_ask_for_io = 1;
+  running_process.index++;
+
+  if(running_process.index == MAX_PRIO) { /* processo acabou de rodar */
+    finished_processes++;
+    did_ask_for_io = 1;
+    return;
+
+  } else {
+    puts("ASKED FOR IO >>>>>");
+    printf("PROCESSO %s >>>>>\n", running_process.nome);
+    fila_insere(fila_io, running_process);
+    did_ask_for_io = 1;
+
+  }
 }
 
 void finished_io() {
-  puts("<<<< VOLTEI DE IO");
   did_ask_for_io = 0;
 
-  if(!fila_vazia(fila_io)) {
+  // if(!fila_vazia(fila_io)) {
     InfoProcesso out = fila_retira(fila_io);
-    printf("<<<< PROCESSO %s\n", out.nome);
-
     kill(out.pid, SIGSTOP);
+
+    puts("<<<< VOLTEI DE IO");
+    printf("<<<< PROCESSO %s\n", out.nome);
 
     switch(out.fila) {
       case 1:
@@ -489,12 +508,5 @@ void finished_io() {
         fila_insere(f2, out);
         break;
     }
-  }
-}
-
-void finished_execution(int signum) {
-  if(signum != 20) {
-    puts("PROCESSO TERMINOU");
-    // fila_retira(fila_processo);
-  }
+  // }
 }
